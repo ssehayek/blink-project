@@ -8,16 +8,16 @@ The aim of this project was to quickly acquire photoblinking/photobleaching rate
   * Able to analyze high-density systems
   * Able to analyze rates faster than the detector
   
-<p align="center">
- <img src="docs/simulation.gif" alt="Sample simulation" width="200px"></br>
- <i> Sample simulation clip </i>
-</p>
-  
 ## Features
 
   * Simulator
   * Autocorrelation code
   * Fitting functions
+  
+<p align="center">
+ <img src="docs/simulation.gif" alt="Sample simulation" width="120px"></br>
+ <i> Sample simulation clip </i>
+</p>
   
 ## Usage
 
