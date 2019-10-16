@@ -15,6 +15,7 @@ The aim of this project was to quickly acquire photoblinking/photobleaching rate
   * Fitting functions
   
 <p align="center">
+
  <img src="media/simulation.gif" alt="Sample simulation" width="15%">
  &nbsp;
  <img src="media/rarr.svg" width="15%">
