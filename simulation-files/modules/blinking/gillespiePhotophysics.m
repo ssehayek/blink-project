@@ -51,7 +51,7 @@ init_obs_state(init_obs_state == 0) = off_int_frac;
 %% state update using Gillespie algorithm
 
 % absolute time
-time = 0;
+t = 0;
 % state_changes stores info about state changes, and has size based on
 % estimated number of switches
 %
@@ -75,7 +75,7 @@ n = 0;
 % bleaching)
 % each state switch counts for 0.5 of a cycle
 n_cycles = zeros(N,1);
-while time <= T-1 && N_on + N_off > 0
+while t <= T-1 && N_on + N_off > 0
     % array of propensities
     switch blink_model
         case 'twoStateBleach'
@@ -100,7 +100,7 @@ while time <= T-1 && N_on + N_off > 0
     j = find(S_a_j >= r_2*a_0,1,'first');
     
     % time update
-    time = time + dt;
+    t = t + dt;
     % increase switch counter
     n = n + 1;
     switch j
@@ -153,26 +153,26 @@ while time <= T-1 && N_on + N_off > 0
                     N_off = N_off - 1;
                 otherwise
                     % first randomly draw which state will bleach
-                    % 
+                    %
                     % probability that on-state bleaches
                     p_on_bleach = N_on*k_p(1)/a_j(end);
-                    % state to bleach 
-                    state_bleach = 2-binornd(1,p_on_bleach);
+                    % state to bleach
+                    prev_state = 2-binornd(1,p_on_bleach);
                     %
                     % get all particle indices which are in state_bleach
-                    prev_state_inds = find(photo_state==state_bleach);
+                    prev_state_inds = find(photo_state==prev_state);
                     % index of random particle in the state state_bleach to bleach
                     switch_mol_ind = prev_state_inds(randsample(length(prev_state_inds),1));
                     %
                     % update particle numbers depending on the previously
                     % occupied state
-                    N_on = N_on - (2-state_bleach);
-                    N_off = N_off - (state_bleach-1);
+                    N_on = N_on - (2-prev_state);
+                    N_off = N_off - (prev_state-1);
             end
     end
     % update state_changes based on current switch
     state_changes(1,n) = switch_mol_ind;
-    state_changes(2,n) = time;
+    state_changes(2,n) = t;
     state_changes(3,n) = j;
     state_changes(4,n) = (j==1)+(j==2)*off_int_frac;
     
@@ -190,40 +190,67 @@ state_changes(:,nan_col:end) = [];
 % it can exceed size limitations and contains redundant information.
 % useful for later image series construction.
 tint_obs_state = zeros(N,T);
+% possible values of observed state for ease of computation
+obs_state_vals = [1,off_int_frac];
 for n = 1:N
-    % state switch times for nth molecule
-    switch_times = state_changes(2,state_changes(1,:) == n);
-    % floor of switch times; useful for classifying which frame each
-    % switch belongs to
-    switch_times_flr = floor(switch_times);
+    % state switches in nth dye
+    switch_times_n = state_changes(2,state_changes(1,:)==n);
+    % index when nth fluorophore bleaches
+    t_bleach_ind = find(state_changes(3,state_changes(1,:)==n)==3,1,'first');
+    % time when nth fluorophore bleaches
+    t_bleach_n = switch_times_n(t_bleach_ind);
+    %
+    % number of frames until nth fluorophore bleaches; T if no bleach
+    T_eff = min([ceil(t_bleach_n),T]);
     
-    % observed states of nth particle
-    curr_obs_state = state_changes(4,state_changes(1,:) == n);
-    
+    frame_vec = 0:T_eff;
+    % times at which switches occur for particle n (including start and end
+    % frame times))
+    switch_times_n = sort([frame_vec,state_changes(2,state_changes(1,:)==n)]);
+    % find frame indices in sorted switch_times_n
+    frame_inds = find(switch_times_n == ceil(switch_times_n));
     % temporary variable for storing state at the beginning of next frame
-    next_start_state = init_obs_state(n);
+    start_state_t = init_photo_state(n);
     % frame loop
-    for t = 0:T-1
-        % find indices of switches which occur in frame t
-        switch_inds_t = (switch_times_flr == t);
+    for t = 1:T_eff-1
+        % get switch times for nth fluorophore in frame t
+        switch_times_n_t = switch_times_n(frame_inds(t):frame_inds(t+1));
+        % number of switches in frame t
+        n_switch = length(switch_times_n(frame_inds(t):frame_inds(t+1)))-2;
         
-        % observed states at each switch in frame t (including state at
-        % start of frame)
-        curr_obs_state_t = [next_start_state,...
-            curr_obs_state(switch_inds_t)];
+        % temporary vector of photostates between switch times
+        state_vec_t = obs_state_vals(mod(start_state_t-1:start_state_t+n_switch-1,2)+1);
+        % last photostate in frame is first photostate in next frame
+        start_state_t = mod(start_state_t+n_switch-1,2)+1;
         
-        % time at which switches occur in frame t (including start and end
-        % times of frame)
-        switch_times_t = [t,switch_times(switch_inds_t),t+1];
-        % time between consecutive switches
-        d_switch_times_t = diff(switch_times_t);
-        
-        % store time-integrated observed state
-        tint_obs_state(n,t+1) = dot(curr_obs_state_t,d_switch_times_t);
-        
-        % update state at the beginning of next frame
-        next_start_state = curr_obs_state_t(end);
+        % times between consecutive switches
+        d_switch_times_t = diff(switch_times_n_t);
+        % store time-integrated observed state (faster than using built-in dot function)
+        tint_obs_state(n,t) = sum(state_vec_t.*d_switch_times_t);
     end
+    % last frame 
+    %
+    % get switch times for nth fluorophore in last frame
+    switch_times_n_t = switch_times_n(frame_inds(T_eff):frame_inds(T_eff+1));
+    % number of switches in last frame
+    n_switch = length(switch_times_n(frame_inds(T_eff):frame_inds(T_eff+1)))-2;
+    
+    if isempty(t_bleach_n)
+        % fluorophore n does not bleach
+        %
+        % vector of photostates in last frame
+        state_vec_t = obs_state_vals(mod(start_state_t-1:start_state_t+n_switch-1,2)+1);
+    else
+        % fluorophore n bleaches
+        %
+        % vector of photostates in last frame; append 0 for bleach state
+        state_vec_t = [obs_state_vals(mod(start_state_t-1:start_state_t+n_switch-2,2)+1),0];
+    end  
+    % times between consecutive switches in last frame
+    d_switch_times_t = diff(switch_times_n_t);
+    % store time-integrated observed state in last frame (faster than using built-in dot function)
+    tint_obs_state(n,T_eff) = sum(state_vec_t.*d_switch_times_t);
+    %
 end
 % permute dimensions for later multiplication with img_kernel_stat
 tint_obs_state = permute(tint_obs_state,[2,3,1]);
