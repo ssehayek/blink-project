@@ -21,7 +21,7 @@ The aim of this project was to quickly acquire photoblinking/photobleaching rate
  &nbsp;
  <img src="media/rarr.svg" width="15%">
  &nbsp;
- <img src="media/plot.svg" width="20%">
+ <img src="media/plot.svg" width="15%">
  </br></br>
  <i> Sample simulation clip and autocorrelation output </i>
  </br></br>
