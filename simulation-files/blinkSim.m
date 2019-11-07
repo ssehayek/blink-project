@@ -117,6 +117,7 @@ noise_type = 'emccd';
 kernel_varargin = {};
 laser_varargin = {};
 noise_varargin = {};
+int_dep = 0;
 off_int_frac = 0;
 save_run = 0;
 %
@@ -193,6 +194,14 @@ for i = 1:2:length(varargin)
             warning(['Unknown option for ''',varargin{i},...
                 ''', using default options.'])
         end
+    elseif any(strcmpi(varargin{i},{'intensityDependent',...
+            'bkgdDependent','intDep','bkgdDep'}))
+        if varargin{i+1} == 1
+            int_dep = 1;
+        else
+            warning(['Unknown option for ''',varargin{i},...
+                ''', using default options.'])
+        end
     elseif any(strcmpi(varargin{i},{'savePath'}))
         if ischar(varargin{i+1})
             save_run = 1;
@@ -231,9 +240,18 @@ else
                 k_on,k_off,k_p,'blinkModel',blink_model,'offIntFrac',...
                 off_int_frac);
         else
-            [init_photo_state,state_changes,tint_obs_state,n_cycles] = ...
-                gillespiePhotophysics(N,T,k_on,k_off,k_p,'blinkModel',...
-                blink_model,'offIntFrac',off_int_frac);
+            if int_dep == 0
+                [init_photo_state,state_changes,tint_obs_state,n_cycles] = ...
+                    gillespiePhotophysics(N,T,k_on,k_off,k_p,'blinkModel',...
+                    blink_model,'offIntFrac',off_int_frac);
+            else
+                % zero array for getting center pixel from getCtrPxl
+                I = zeros(sz);
+                %
+                [particles,tint_obs_state] = gillespieLaserBkgdBlink(...
+                    position,T,k_on,k_off,k_p,I,'offIntFrac',off_int_frac,...
+                    'blinkModel',blink_model,laser_varargin{:});
+            end
         end
     else
         [photo_state,obs_state,tint_obs_state] = simulatePhotophysics(N,total_T,sub_time,k_on,k_off,k_p,...
@@ -277,8 +295,10 @@ if use_parallel(2)
     delete(gcp)
 else
     for t = 1:T
+        % find indices of particles that are not off for the whole frame t
+        on_inds = find(tint_obs_state(t,1,:));
         % time-integrated image at time t
-        obs_kernel_stat = tint_obs_state(t,1,:).*sub_time.*img_kernel_stat;
+        obs_kernel_stat = tint_obs_state(t,1,on_inds).*sub_time.*img_kernel_stat(:,:,on_inds);
         J_sig(:,:,t) = sum(obs_kernel_stat,3);
     end
 end

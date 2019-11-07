@@ -38,15 +38,7 @@ mean_flips_est = round(T/mean_dt_est);
 % mean_bleach_est = round(N*p_bleach);
 
 % photo-state initialization
-%
 init_photo_state = 1 + binornd(1,k_off/K,[N,1]);
-%
-init_obs_state = (init_photo_state == 1);
-% convert logical to double
-init_obs_state = double(init_obs_state);
-% assign off-state "intensity" to off_int_frac
-init_obs_state(init_obs_state == 0) = off_int_frac;
-%
 
 %% state update using Gillespie algorithm
 
