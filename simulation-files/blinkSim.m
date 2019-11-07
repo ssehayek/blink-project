@@ -277,8 +277,10 @@ if use_parallel(2)
     delete(gcp)
 else
     for t = 1:T
+        % find indices of particles that are not off for the whole frame t
+        on_inds = find(tint_obs_state(t,1,:));
         % time-integrated image at time t
-        obs_kernel_stat = tint_obs_state(t,1,:).*sub_time.*img_kernel_stat;
+        obs_kernel_stat = tint_obs_state(t,1,on_inds).*sub_time.*img_kernel_stat(:,:,on_inds);
         J_sig(:,:,t) = sum(obs_kernel_stat,3);
     end
 end
