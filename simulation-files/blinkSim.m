@@ -25,14 +25,14 @@
 % {} (default) | cell-array
 % -------------------------------------------------------------------------
 % Varargin to pass to getImgKernel.m.
-% 
+%
 % 'laserVarargin','laserVar'
 % -------------------------------------------------------------------------
 % {} (default) | cell-array
 % -------------------------------------------------------------------------
 % Varargin to pass to addLaserProfile.m. By default, no laser background
 % illumination pattern is simulated.
-% 
+%
 % 'model','blinkModel'
 % -------------------------------------------------------------------------
 % 'twoStateBleach' (default) | 'offStateBleach' | 'multiStateAllBleach'
@@ -212,7 +212,7 @@ sub_time = 1/sub_frames;
 
 %% generate particle positions
 
-position = (1 - w0) + (2*w0+sz-1).*rand(N,2);
+position = generatePositions(N,sz,w0,kernel_varargin{:});
 
 %% photophysics
 
@@ -236,8 +236,9 @@ else
                 blink_model,'offIntFrac',off_int_frac);
         end
     else
-        [photo_state,obs_state,tint_obs_state] = simulatePhotophysics(N,total_T,sub_time,k_on,k_off,k_p,...
-            'blinkModel',blink_model,'offIntFrac',off_int_frac);
+        [photo_state,obs_state,tint_obs_state] = simulatePhotophysics(N,...
+            total_T,sub_time,k_on,k_off,k_p,'blinkModel',blink_model,...
+            'offIntFrac',off_int_frac);
     end
 end
 
@@ -249,39 +250,50 @@ toc
 % array to store noiseless image series
 J_sig = zeros(sz,sz,T);
 
+% get dye PSF arrays and corresponding positions
+if use_parallel(2)
+    psf_kernel = zeros(sz,sz,N);
+    for i = 1:N
+        psf_kernel(:,:,i) = ...
+            getImgKernelNew(J_sig,position(i,:),w0,'parallel',...
+            use_parallel(2),kernel_varargin{:});
+    end
+else
+    kernel_info = cell(1,N);
+    for i = 1:N
+        [kernel_info{i}.psf_kernel,kernel_info{i}.xcoor,kernel_info{i}.ycoor] = ...
+            getImgKernelNew(J_sig,position(i,:),w0,'parallel',...
+            use_parallel(2),kernel_varargin{:});
+    end
+end
+%
+
 %
 disp('generating image series')
 tic
 
-img_kernel_stat = zeros(sz,sz,N);
-% get corresponding image kernel
-if w0 == 0
-    for i = 1:N
-        round_y = mod(round(position(i,1)),sz)+1;
-        round_x = mod(round(position(i,2)),sz)+1;
-        img_kernel_stat(round_y,round_x,i) = 1;
-    end
-else
-    for i = 1:N
-        img_kernel_stat(:,:,i) = getImgKernel(J_sig,position(i,:),w0,...
-            kernel_varargin{:});
-    end
-end
-
+% construct image series
 if use_parallel(2)
     parfor t = 1:T
+        % find indices of particles that are not off for the whole frame t
+        on_inds = find(tint_obs_state(t,1,:));
         % time-integrated image at time t
-        obs_kernel_stat = tint_obs_state(t,1,:).*sub_time.*img_kernel_stat;
+        obs_kernel_stat = tint_obs_state(t,1,on_inds).*sub_time.*psf_kernel(:,:,on_inds);
         J_sig(:,:,t) = sum(obs_kernel_stat,3);
     end
     delete(gcp)
 else
     for t = 1:T
         % find indices of particles that are not off for the whole frame t
-        on_inds = find(tint_obs_state(t,1,:));
-        % time-integrated image at time t
-        obs_kernel_stat = tint_obs_state(t,1,on_inds).*sub_time.*img_kernel_stat(:,:,on_inds);
-        J_sig(:,:,t) = sum(obs_kernel_stat,3);
+        on_inds = find(tint_obs_state(t,1,:))';
+        for n = on_inds
+            xcoor_n = kernel_info{n}.xcoor;
+            ycoor_n = kernel_info{n}.ycoor;
+            psf_kernel_n = kernel_info{n}.psf_kernel;
+            % time-integrated image at time t
+            J_sig(ycoor_n,xcoor_n,t) = J_sig(ycoor_n,xcoor_n,t) + ...
+                tint_obs_state(t,1,n).*sub_time.*psf_kernel_n;
+        end
     end
 end
 toc
