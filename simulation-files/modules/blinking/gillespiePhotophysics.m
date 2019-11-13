@@ -184,6 +184,7 @@ state_changes(:,nan_col:end) = [];
 tint_obs_state = zeros(N,T);
 % possible values of observed state for ease of computation
 obs_state_vals = [1,off_int_frac];
+init_obs_state = (init_photo_state == 1) + off_int_frac.*(init_photo_state == 2);
 for n = 1:N
     % state switches in nth dye
     switch_times_n = state_changes(2,state_changes(1,:)==n);
@@ -201,48 +202,65 @@ for n = 1:N
     switch_times_n = sort([frame_vec,state_changes(2,state_changes(1,:)==n)]);
     % find frame indices in sorted switch_times_n
     frame_inds = find(switch_times_n == ceil(switch_times_n));
-    % temporary variable for storing state at the beginning of next frame
-    start_state_t = init_photo_state(n);
+    % temporary variable for storing observed/photo-state at the beginning
+    % of next frame
+    next_photo_state = init_photo_state(n);
+    next_obs_state = init_obs_state(n);
     % frame loop
     for t = 1:T_eff-1
         % get switch times for nth fluorophore in frame t
         switch_times_n_t = switch_times_n(frame_inds(t):frame_inds(t+1));
         % number of switches in frame t
         n_switch = length(switch_times_n(frame_inds(t):frame_inds(t+1)))-2;
-        
-        % temporary vector of photostates between switch times
-        state_vec_t = obs_state_vals(mod(start_state_t-1:start_state_t+n_switch-1,2)+1);
-        % last photostate in frame is first photostate in next frame
-        start_state_t = mod(start_state_t+n_switch-1,2)+1;
-        
         % times between consecutive switches
         d_switch_times_t = diff(switch_times_n_t);
-        % store time-integrated observed state (faster than using built-in dot function)
-        tint_obs_state(n,t) = sum(state_vec_t.*d_switch_times_t);
+        if n_switch == 0 && next_obs_state == 0
+            tint_obs_state(n,t) = 0;
+        elseif off_int_frac == 0 && next_obs_state == 1
+            tint_obs_state(n,t) = sum(d_switch_times_t(1:2:end));
+        elseif off_int_frac == 0 && next_obs_state == 0
+            tint_obs_state(n,t) = sum(d_switch_times_t(2:2:end));
+        elseif next_obs_state == 1
+            % sum times of odd switch intervals
+            dt_odd = sum(d_switch_times_t(1:2:end));
+            % store time-integrated observed state in last frame (faster
+            % than using built-in dot function)
+            tint_obs_state(n,t) = dt_odd + (dt_odd-1)*off_int_frac;
+        elseif next_obs_state == off_int_frac
+            dt_odd = sum(d_switch_times_t(1:2:end));
+            tint_obs_state(n,t) = dt_odd*off_int_frac + (dt_odd-1);
+        end
+        
+        if mod(n_switch,2) == 1
+            % if n_switch is odd, switch next_photo_state and
+            % next_obs_state
+            next_photo_state = 3-next_photo_state;
+            next_obs_state = obs_state_vals(next_photo_state);
+        end
     end
-    % last frame 
+    % last frame (sacrifice code efficiency for compactness)
     %
     % get switch times for nth fluorophore in last frame
     switch_times_n_t = switch_times_n(frame_inds(T_eff):frame_inds(T_eff+1));
-    % number of switches in last frame
-    n_switch = length(switch_times_n(frame_inds(T_eff):frame_inds(T_eff+1)))-2;
-    
+    % times between consecutive switches in last frame
+    d_switch_times_t = diff(switch_times_n_t);
+    %
     if isempty(t_bleach_n)
         % fluorophore n does not bleach
         %
-        % vector of photostates in last frame
-        state_vec_t = obs_state_vals(mod(start_state_t-1:start_state_t+n_switch-1,2)+1);
+        dt_odd = sum(d_switch_times_t(1:2:end));
+        % store time-integrated observed state in last frame
+        tint_obs_state(n,T_eff) = dt_odd*next_obs_state+(1-dt_odd)*...
+            obs_state_vals(obs_state_vals ~= next_obs_state);
     else
         % fluorophore n bleaches
         %
-        % vector of photostates in last frame; append 0 for bleach state
-        state_vec_t = [obs_state_vals(mod(start_state_t-1:start_state_t+n_switch-2,2)+1),0];
-    end  
-    % times between consecutive switches in last frame
-    d_switch_times_t = diff(switch_times_n_t);
-    % store time-integrated observed state in last frame (faster than using built-in dot function)
-    tint_obs_state(n,T_eff) = sum(state_vec_t.*d_switch_times_t);
-    %
+        dt_odd = sum(d_switch_times_t(1:2:end-1));
+        dt_even = sum(d_switch_times_t(2:2:end-1));
+        %
+        tint_obs_state(n,T_eff) = dt_odd*next_obs_state+dt_even*...
+            obs_state_vals(obs_state_vals ~= next_obs_state);
+    end
 end
 % permute dimensions for later multiplication with img_kernel_stat
 tint_obs_state = permute(tint_obs_state,[2,3,1]);
